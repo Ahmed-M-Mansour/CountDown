@@ -400,3 +400,32 @@ input[type="date"] {
     margin-bottom: 1rem;
     border-style: dashed;
 }
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+/* Finished Day Style */
+.card.finished {
+    background-color: #dcfce7;
+    /* Green-100 */
+    border-color: var(--success-color);
+}
+
+.card.finished .day-number {
+    color: var(--success-color);
+}
+
+.card.finished::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    color: var(--success-color);
+    opacity: 0.2;
+    pointer-events: none;
+}

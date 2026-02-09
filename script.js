@@ -14,6 +14,7 @@ const elements = {
     modalDayTitle: document.getElementById('modal-day-title'),
     // noteText removed
     saveNoteBtn: document.getElementById('save-note-btn'),
+    toggleFinishBtn: document.getElementById('toggle-finish-btn'),
     addTodoBtn: document.getElementById('add-todo-btn'),
     closeModal: document.querySelector('.close-modal'),
     langToggle: document.getElementById('lang-toggle')
@@ -36,6 +37,8 @@ const translations = {
         notesPlaceholder: "Write your notes here...",
         addTodo: "+ Add New Item",
         taskPlaceholder: "New task...",
+        markFinished: "Mark as Finished",
+        markUnfinished: "Unmark Day",
         langBtn: "عربي"
     },
     ar: {
@@ -53,6 +56,8 @@ const translations = {
         notesPlaceholder: "اكتب ملاحظاتك هنا...",
         addTodo: "+ إضافة عنصر جديد",
         taskPlaceholder: "مهمة جديدة...",
+        markFinished: "تحديد كمكتمل",
+        markUnfinished: "إلغاء الاكتمال",
         langBtn: "English"
     }
 };
@@ -61,6 +66,7 @@ const translations = {
 let state = {
     targetDate: localStorage.getItem('countdown_target_date') || null,
     notes: JSON.parse(localStorage.getItem('countdown_notes') || '{}'),
+    finishedDays: JSON.parse(localStorage.getItem('countdown_finished_days') || '[]'),
     lang: localStorage.getItem('countdown_lang') || 'en'
 };
 
@@ -88,9 +94,7 @@ function showCountdown() {
 
     // Validate date
     if (target < today) {
-        // If target is in past (and we are resetting), just show setup. 
-        // Or if handled error... for now let's assume valid future date from input.
-        // But if reloading app with old date?
+        // Option: allow past dates or reset. 
     }
 
     elements.setupView.classList.add('hidden');
@@ -111,10 +115,7 @@ function renderCalendar() {
     const target = new Date(state.targetDate);
 
     const daysRemaining = calculateDaysDiff(today, target);
-    const totalDays = calculateDaysDiff(new Date(state.startDate || today), target); // We might need start date for proper progress bar...
-    // Simplification: We will just count days remaining. 
-    // To have a 'progress bar' we ideally need a start date. 
-    // Let's save start date if not exists.
+    const totalDays = calculateDaysDiff(new Date(state.startDate || today), target);
 
     if (!localStorage.getItem('countdown_start_date')) {
         localStorage.setItem('countdown_start_date', today.toISOString());
@@ -145,27 +146,28 @@ function renderCalendar() {
     // Grid Generation
     elements.calendarGrid.innerHTML = '';
 
-    // We want cards 30, 29, 28... 1
     // Loop from daysRemaining down to 1
     for (let i = daysRemaining; i >= 1; i--) {
         const card = document.createElement('div');
         card.className = 'card';
 
-
-
         // Calculate the specific date string for this card
         const cardDate = new Date(target);
         cardDate.setDate(target.getDate() - i);
-
         const dateKey = cardDate.toISOString().split('T')[0];
 
         // Format date for display
-        const dateOptions = { month: 'short', day: 'numeric' }; // e.g., 'Mar 12'
+        const dateOptions = { month: 'short', day: 'numeric' };
         const dateDisplayStr = cardDate.toLocaleDateString(state.lang === 'en' ? 'en-US' : 'ar-EG', dateOptions);
 
         // Check if note exists
         if (state.notes[dateKey]) {
             card.classList.add('has-note');
+        }
+
+        // Check if finished
+        if (state.finishedDays.includes(i)) {
+            card.classList.add('finished');
         }
 
         if (i === daysRemaining) {
@@ -185,6 +187,7 @@ function renderCalendar() {
 
 // Modal Logic
 let currentNoteKey = null;
+let currentDayIndex = null;
 
 const defaultTodos = {
     en: ["Prayer", "Practical Study", "Exercise", "Work Achievement", "Remembrance"],
@@ -193,13 +196,12 @@ const defaultTodos = {
 
 function openModal(daysLeft, dateKey) {
     currentNoteKey = dateKey;
+    currentDayIndex = daysLeft;
+
     // Get existing todos or initialize defaults
     let todos = state.notes[dateKey];
 
     if (!todos || !Array.isArray(todos)) {
-        // Migration or new day: use defaults
-        // If it was a string (old note), maybe convert implies losing it? 
-        // Let's safe guard: if string, make it first item.
         if (typeof todos === 'string') {
             todos = [{ text: todos, completed: false }];
         } else {
@@ -215,16 +217,18 @@ function openModal(daysLeft, dateKey) {
 
     renderTodos(todos);
 
+    // Update Button Text
+    const isFinished = state.finishedDays.includes(currentDayIndex);
+    elements.toggleFinishBtn.textContent = isFinished
+        ? translations[state.lang].markUnfinished
+        : translations[state.lang].markFinished;
+
+    elements.toggleFinishBtn.classList.toggle('btn-primary', !isFinished); // Optional: make primary if action needed
+    elements.toggleFinishBtn.classList.toggle('btn-secondary', isFinished);
+
     elements.noteModal.classList.remove('hidden');
 
     // Check if completed (read-only)
-    const completionState = daysLeft <= 0; // Or some other logic if "Done"
-    // Wait, is 'daysLeft' 0 when done? Yes.
-    // Actually completion is when target date is reached.
-    // If we are VIEWING a past day? No, requirement says:
-    // "When the countdown reaches the final day... Disable editing"
-    // So if TODAY >= Target Date.
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const target = new Date(state.targetDate);
@@ -234,9 +238,11 @@ function openModal(daysLeft, dateKey) {
         document.querySelectorAll('.todo-input, .todo-checkbox').forEach(el => el.disabled = true);
         elements.addTodoBtn.disabled = true;
         elements.saveNoteBtn.disabled = true;
+        elements.toggleFinishBtn.disabled = true;
     } else {
         elements.addTodoBtn.disabled = false;
         elements.saveNoteBtn.disabled = false;
+        elements.toggleFinishBtn.disabled = false;
     }
 }
 
@@ -307,37 +313,57 @@ function saveCurrentNote() {
     renderCalendar();
 }
 
+function toggleDayFinished() {
+    if (!currentDayIndex) return;
+
+    const index = state.finishedDays.indexOf(currentDayIndex);
+    if (index === -1) {
+        state.finishedDays.push(currentDayIndex);
+    } else {
+        state.finishedDays.splice(index, 1);
+    }
+
+    localStorage.setItem('countdown_finished_days', JSON.stringify(state.finishedDays));
+
+    // Update button immediately
+    const isFinished = state.finishedDays.includes(currentDayIndex);
+    elements.toggleFinishBtn.textContent = isFinished
+        ? translations[state.lang].markUnfinished
+        : translations[state.lang].markFinished;
+
+    renderCalendar(); // Refresh grid to show green card
+}
+
+
 // Event Listeners
 function setupEventListeners() {
+    // ... existing listeners ...
+
     elements.startBtn.addEventListener('click', () => {
+        // ...
         const dateVal = elements.dateInput.value;
         if (!dateVal) return;
-
-        // Parse yyyy-mm-dd to local midnight date
         const [y, m, d] = dateVal.split('-').map(Number);
         const selectedDate = new Date(y, m - 1, d);
-
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
         if (selectedDate <= today) {
             alert('Please select a future date');
             return;
         }
-
         state.targetDate = selectedDate.toISOString();
         localStorage.setItem('countdown_target_date', state.targetDate);
-        // Reset start date on new goal
         localStorage.setItem('countdown_start_date', new Date().toISOString());
-
         showCountdown();
     });
 
     elements.resetBtn.addEventListener('click', () => {
-        if (confirm('Are you sure you want to reset? All notes will be kept but date cleared.')) {
+        if (confirm('Are you sure you want to reset?')) {
             state.targetDate = null;
             localStorage.removeItem('countdown_target_date');
             localStorage.removeItem('countdown_start_date');
+            state.finishedDays = []; // Reset finished days too? Usually yes on full reset.
+            localStorage.removeItem('countdown_finished_days');
             showSetup();
         }
     });
@@ -346,14 +372,11 @@ function setupEventListeners() {
         elements.noteModal.classList.add('hidden');
     });
 
-    // Close modal on outside click
     window.addEventListener('click', (e) => {
         if (e.target === elements.noteModal) {
             elements.noteModal.classList.add('hidden');
         }
     });
-
-
 
     elements.addTodoBtn.addEventListener('click', () => {
         addTodoToDOM();
@@ -361,11 +384,14 @@ function setupEventListeners() {
 
     elements.saveNoteBtn.addEventListener('click', saveCurrentNote);
 
+    elements.toggleFinishBtn.addEventListener('click', toggleDayFinished);
+
     elements.langToggle.addEventListener('click', () => {
         const newLang = state.lang === 'en' ? 'ar' : 'en';
         setLanguage(newLang);
     });
 }
+
 
 function setLanguage(lang) {
     state.lang = lang;
